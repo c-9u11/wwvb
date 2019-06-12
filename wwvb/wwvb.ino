@@ -192,10 +192,12 @@ static const unsigned char PROGMEM nostren_bmp[] =
 //#define ledFramePin  6         // LED frame indicator digitaloutput
 //#define ledBitPin    5         // LED bit value indicator digital output
 //#define ledRxPin     4         // LED indicator digital output
+
 //Constants
-#define WWVB_noise_millis 100  // Number of milliseconds before we assume noise     (100ms)
-#define WWVB_mark_millis  400  // Number of milliseconds before we assume a mark    (200ms)
-#define WWVB_split_millis 700  // Number of milliseconds before we assume a logic 1 (500ms=1,800ms=0)
+#define WWVB_noise_millis 100  // Number of milliseconds in which we assume noise     (100ms)
+#define WWVB_zero_millis  300  // Number of milliseconds for a logic 0 (100-300, 200ms nominal)
+#define WWVB_one_millis   600  // Number of milliseconds for a logic 1 (400-600, 500ms nominal)
+#define WWVB_mark_millis  900  // Number of milliseconds before we assume a mark    (700-900, 800ms nominal)
 
 /* Definitions for the timer interrupt 2 handler
  * The Arduino runs at 16 Mhz, we use a prescaler of 64 -> We need to 
@@ -422,25 +424,25 @@ void wwvbInit() {
 ISR(TIMER2_OVF_vect) {
   RESET_TIMER2;
   tickCounter += 1;       // increment second
-  if (tickCounter == 1000) {
+  if (tickCounter >= 1000) {
     ss++;
-    if (ss == 60) {       // increment minute
+    if (ss >= 60) {       // increment minute
       ss = 0;
       mm++;
-      if (mm == 60) {     // increment hour
+      if (mm >= 60) {     // increment hour
         mm = 0;
         hh++;
-        if (hh == 24) {   // increment day
+        if (hh >= 24) {   // increment day
           hh = 0;
           doy++;
-          if (doy == (366 + lyr)) { // incr year
+          if (doy >= (366 + lyr)) { // incr year
             doy = 1;
             year++;
           }
         }
       }
     }
-    tickCounter = 0;
+    tickCounter -= 1000; //accounts for cumulative errors. (bresenham's algorithm)
   }
 }
 
@@ -487,7 +489,20 @@ void scanSignal(void){
       if (difference < WWVB_noise_millis) {        // below minimum - pulse noise
         // enough of this and it will cause bit flips and erroneous frame markers
         signalNoise = 1;
-      } else if (difference < WWVB_mark_millis) {  // 10 second and frame markers
+      }
+        else if (difference < WWVB_zero_millis) {
+          appendSignal(0);                           // decode bit as 0
+          //digitalWrite(ledBitPin, HIGH);           // bit indicator LED on
+          prevMark = 0;                              // set mark counter to zero
+          bitCount ++;                               // increment bit counter
+        } 
+        else if (difference < WWVB_one_millis){
+          appendSignal(1);                           // decode bit as 1
+          //digitalWrite(ledBitPin, LOW);              // bit indicator LED off
+          prevMark = 0;                              // set mark counter to zero
+          bitCount ++;                               // increment bit counter
+        }
+        else {  // 10 second and frame markers
         // two sequential marks -> start of frame. If we read 6 marks and 60 bits,
         // we should have received a valid frame
         if ((prevMark == 1) && (markCount == 6) && (bitCount == 60)) { 
@@ -515,16 +530,6 @@ void scanSignal(void){
           prevMark = 1;                           // set mark state to one, following mark indicates frame
           bitCount ++;                            // increment bit counter
         }
-      } else if (difference < WWVB_split_millis) {
-        appendSignal(1);                           // decode bit as 1
-        //digitalWrite(ledBitPin, HIGH);             // bit indicator LED on
-        prevMark = 0;                              // set mark counter to zero
-        bitCount ++;                               // increment bit counter
-      } else {
-        appendSignal(0);                           // decode bit as 0
-        //digitalWrite(ledBitPin, LOW);              // bit indicator LED off
-        prevMark = 0;                              // set mark counter to zero
-        bitCount ++;                               // increment bit counter
       }
     }
 }
