@@ -273,7 +273,7 @@ boolean signalNoise     = 0;       // noise detected
 byte markCount          = 0;       // mark count, 6 pulses per minute
 boolean prevMark        = 0;       // store previous mark
 byte bitCount           = 0;       // bits, 60 pulses per minute
-byte frameError         = 1;       // set for frame reject
+boolean frameError      = true;       // set for frame reject
 word errorCount         = 0;       // keep count of frame errors
 
 // Time Zone definition array, identifier & offset
@@ -345,9 +345,9 @@ void setup(void) {
   //tzSwitchCheck();               // dip switch read during restart - choose timezone to display
   //getTemperature();              // read temperature from sensor
 
-
-        display.cp437(true);  
-    display.setTextSize(2);             // Normal 2:1 pixel scale
+  //font settings
+  display.cp437(true);  
+  display.setTextSize(2);             // Normal 2:1 pixel scale
   display.setTextColor(WHITE);        // Draw white text
   
   Serial.println(F("initializing receiver"));
@@ -515,7 +515,7 @@ void scanSignal(void){
           markCount  = 0;                         // start counting marks, 6 per minute
           prevMark   = 0;                         // set bit counter to one
           bitCount   = 1;                         // should be a valid frame
-          frameError = 0;                         // set frame error indicator to zero
+          frameError = false;                         // set frame error indicator to zero
           errorCount = 0;                         // set frame error count to zero
           finalizeBuffer();                       // hand off to decode time/date
         } else if ((prevMark == 1) && ((markCount != 6) || (bitCount != 60))) { // bad decode-frame reject
@@ -523,7 +523,7 @@ void scanSignal(void){
           markCount  = 0;                         // bad start of frame set mark count to zero 
           prevMark   = 0;                         // clear previous to restart frame
           bitCount   = 1;                         // set bit count to one
-          frameError = 1;                         // and indicate frame error
+          frameError = true;                         // and indicate frame error
           errorCount ++;                          // increment frame error count
           bufferPosition = 63;                    // set rx buffer position to beginning
           wwvbRxBuffer   = 0;                     // and clear rx buffer
@@ -536,7 +536,16 @@ void scanSignal(void){
         }
       }
     }
-}
+
+    if(bitCount > 120){ //attempt frame re-acquisition
+      markCount = 0;
+      prevMark = 0;
+      bitCount = 1;
+      frameError = false;
+      bufferPosition = 63;
+      wwvbRxBuffer = 0;
+    }
+}//scansignal()
 
 /************************************************************************************************
  * appendSignal()
@@ -780,9 +789,9 @@ void serialDumpTime(void) {
     clockStarted = 1;
 
     //display signal strength bars
-    if (frameError == 1 && errorCount < 5)           // five or less sequential frame errors
+    if (frameError == true && errorCount < 5)           // five or less sequential frame errors
       pSprite = midstren_bmp; 
-    else if (frameError == 1 & errorCount >= 5)   // more than 5 frame errors
+    else if (frameError == true & errorCount >= 5)   // more than 5 frame errors
       pSprite = lowstren_bmp;
     else
       pSprite = fullstren_bmp;                  // clear signal reception
