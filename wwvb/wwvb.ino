@@ -214,15 +214,15 @@ int tickCounter = 0;
 
 // Time variables
 volatile byte ss;                        // seconds
-volatile byte mm;                        // minutes
-volatile byte hh;                        // UTC hours
+volatile byte mm = 55;                        // minutes
+volatile byte hh = 10;                        // UTC hours
 volatile byte lhh;                       // local time hours
 volatile byte day;                       // day
-volatile word doy;                       // day of year
-volatile byte mon;                       // month
-volatile word year;                      // year
-volatile byte dst;                       // daylight saving time flag
-volatile byte lyr;                       // leap year flag
+volatile word doy = 168;                       // day of year
+volatile byte mon = 06;                       // month
+volatile word year = 2019;                      // year
+volatile byte dst = 1;                       // daylight saving time flag
+volatile byte lyr = 0;                       // leap year flag
 volatile byte prevday;                   // previous day for local time
 volatile byte prevmon;                   // previous month for local time
 volatile byte dayxing;                   // 00:00 UTC day change to Local
@@ -797,6 +797,7 @@ void serialDumpTime(void) {
       pSprite = fullstren_bmp;                  // clear signal reception
    
 
+    Serial.println("adding sig strength");
     display.drawBitmap(
       (display.width()  - SPRITE_WIDTH ),
       (display.height() - SPRITE_HEIGHT),
