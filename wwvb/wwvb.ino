@@ -63,8 +63,6 @@
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-#define NUMFLAKES     10 // Number of snowflakes in the animation example
-
 #define SPRITE_HEIGHT   16
 #define SPRITE_WIDTH    16
 #define LOGO_HEIGHT     32
@@ -108,9 +106,7 @@ static const uint8_t logo_bmp[] PROGMEM = {
   
 };
 
-
-
-  static const unsigned char PROGMEM fullstren_bmp[] =
+  static const unsigned char fullstren_bmp[] PROGMEM =
 { B00000000, B00000000,
   B10010010, B00000000,
   B01010100, B01000000,
@@ -128,7 +124,7 @@ static const uint8_t logo_bmp[] PROGMEM = {
   B00000000, B00000000,
   B00000000, B00000000 };
 
-static const unsigned char PROGMEM midstren_bmp[] =
+static const unsigned char midstren_bmp[] PROGMEM =
 { B00000000, B00000000,
   B10010010, B00000000,
   B01010100, B00000000,
@@ -146,7 +142,7 @@ static const unsigned char PROGMEM midstren_bmp[] =
   B00000000, B00000000,
   B00000000, B00000000 };
 
-static const unsigned char PROGMEM lowstren_bmp[] =
+static const unsigned char lowstren_bmp[] PROGMEM =
 { B00000000, B00000000,
   B10010010, B00000000,
   B01010100, B00000000,
@@ -164,7 +160,7 @@ static const unsigned char PROGMEM lowstren_bmp[] =
   B00000000, B00000000,
   B00000000, B00000000 };
 
-static const unsigned char PROGMEM nostren_bmp[] =
+static const unsigned char nostren_bmp[] PROGMEM=
 { B00000000, B00000000,
   B10010010, B00000000,
   B01010100, B00000000,
@@ -192,10 +188,6 @@ static const unsigned char PROGMEM nostren_bmp[] =
 #define wwvbPdnPin     3 //1 - off (don't leave floating). 50ms startup delay after powerup required
 #define wwvbAonPin     4 //agc hold control. hold low during noisy activity (e.g. stepper motors).
                          //has internal pullup. leave unconnected if not required.
-//#define ledMarkPin   7         // LED mark indicator digital output
-//#define ledFramePin  6         // LED frame indicator digitaloutput
-//#define ledBitPin    5         // LED bit value indicator digital output
-//#define ledRxPin     4         // LED indicator digital output
 
 //Constants
 #define WWVB_noise_millis 100  // Number of milliseconds in which we assume noise     (100ms)
@@ -214,15 +206,15 @@ int tickCounter = 0;
 
 // Time variables
 volatile byte ss;                        // seconds
-volatile byte mm = 55;                        // minutes
-volatile byte hh = 10;                        // UTC hours
+volatile byte mm;                        // minutes
+volatile byte hh;                        // UTC hours
 volatile byte lhh;                       // local time hours
 volatile byte day;                       // day
-volatile word doy = 168;                       // day of year
-volatile byte mon = 06;                       // month
-volatile word year = 2019;                      // year
-volatile byte dst = 1;                       // daylight saving time flag
-volatile byte lyr = 0;                       // leap year flag
+volatile word doy;                       // day of year
+volatile byte mon;                       // month
+volatile word year;                      // year
+volatile byte dst;                       // daylight saving time flag
+volatile byte lyr;                       // leap year flag
 volatile byte prevday;                   // previous day for local time
 volatile byte prevmon;                   // previous month for local time
 volatile byte dayxing;                   // 00:00 UTC day change to Local
@@ -308,8 +300,6 @@ int eomYear[14][2] = {
 
 byte previousSecond;             // store state to trip updates when second changes
 
-boolean clockStarted = 0;        // valid time detected, clock started, clear screen
-
 //float calculatedTemperature = 0; // calculated temperature from sensor
 
 /**********************************************************************************
@@ -329,11 +319,8 @@ void setup(void) {
     for(;;); // Don't proceed, loop forever
   }
 
-//display.display();
-//delay(2000);
   // Show atomic splash screen
   display.clearDisplay();
-
   display.drawBitmap(
     ((display.width() - LOGO_WIDTH) / 2),
     0,//(display.height() / 2),
@@ -395,10 +382,6 @@ void wwvbInit() {
   pinMode(wwvbRxPin, INPUT);             // set WWVB Rx pin input
   pinMode(wwvbPdnPin, OUTPUT);
   pinMode(wwvbAonPin, OUTPUT);
-  //pinMode(ledRxPin, OUTPUT);             // set LED indicator outputs
-  //pinMode(ledBitPin, OUTPUT);
-  //pinMode(ledMarkPin, OUTPUT);
-  //pinMode(ledFramePin, OUTPUT);
   
   // Timer2 Settings: Timer Prescaler /64, 
   TCCR2B |= (1<<CS22);                     // turn on CS22 bit
@@ -460,7 +443,6 @@ void int0handler() {
   // check the value again - since it takes some time to
   // activate the interrupt routine, we get a clear signal.
   wwvbSignalState = digitalRead(wwvbRxPin);         // read pulse level
- // digitalWrite(ledRxPin, wwvbSignalState);          // change Rx indicator LED to match
 }
 
 /*******************************************************************************************************
@@ -487,39 +469,37 @@ void scanSignal(void){
     } 
     else {                                         // or a falling flank
       int difference=millis() - previousFlankTime; // determine pulse length
-      signalNoise = 0;                             // clear signal noise detected
-      //digitalWrite(ledMarkPin, LOW);        
-      //digitalWrite(ledFramePin, LOW);        
+      signalNoise = 0;                             // clear signal noise detected       
       if (difference < WWVB_noise_millis) {        // below minimum - pulse noise
         // enough of this and it will cause bit flips and erroneous frame markers
         signalNoise = 1;
+        Serial.print("x,");
       }
         else if (difference < WWVB_zero_millis) {
           appendSignal(0);                           // decode bit as 0
-          //digitalWrite(ledBitPin, HIGH);           // bit indicator LED on
           prevMark = 0;                              // set mark counter to zero
           bitCount ++;                               // increment bit counter
+          Serial.print("0,");
         } 
         else if (difference < WWVB_one_millis){
           appendSignal(1);                           // decode bit as 1
-          //digitalWrite(ledBitPin, LOW);              // bit indicator LED off
           prevMark = 0;                              // set mark counter to zero
           bitCount ++;                               // increment bit counter
+          Serial.print("1,");
         }
         else {  // 10 second and frame markers
         // two sequential marks -> start of frame. If we read 6 marks and 60 bits,
         // we should have received a valid frame
         if ((prevMark == 1) && (markCount == 6) && (bitCount == 60)) { 
           appendSignal(0);
-          //digitalWrite(ledFramePin, HIGH);        // frame received, ready for new frame
           markCount  = 0;                         // start counting marks, 6 per minute
           prevMark   = 0;                         // set bit counter to one
           bitCount   = 1;                         // should be a valid frame
           frameError = false;                         // set frame error indicator to zero
           errorCount = 0;                         // set frame error count to zero
           finalizeBuffer();                       // hand off to decode time/date
+          Serial.println("block finished");
         } else if ((prevMark == 1) && ((markCount != 6) || (bitCount != 60))) { // bad decode-frame reject
-          //digitalWrite(ledFramePin, HIGH);        
           markCount  = 0;                         // bad start of frame set mark count to zero 
           prevMark   = 0;                         // clear previous to restart frame
           bitCount   = 1;                         // set bit count to one
@@ -527,10 +507,11 @@ void scanSignal(void){
           errorCount ++;                          // increment frame error count
           bufferPosition = 63;                    // set rx buffer position to beginning
           wwvbRxBuffer   = 0;                     // and clear rx buffer
+          Serial.println("bad frame");
         } else {                                  // 10 second marker
+          Serial.print("marker received,");
           markCount ++;                           // increment mark counter, 6 per minute
           appendSignal(0);                        // marks count as 0
-          //digitalWrite(ledMarkPin, HIGH);        
           prevMark = 1;                           // set mark state to one, following mark indicates frame
           bitCount ++;                            // increment bit counter
         }
@@ -544,6 +525,7 @@ void scanSignal(void){
       frameError = false;
       bufferPosition = 63;
       wwvbRxBuffer = 0;
+      Serial.println("attempting re-acquisition");
     }
 }//scansignal()
 
@@ -614,28 +596,6 @@ void finalizeBuffer(void) {
   wwvbRxBuffer   = 0;
 }
 
-// LCD routines to initialize LCD and clear screen
-//void lcdInit() {           // using P H Anderson Serial LCD driver board
-//  Serial.print("?G216");   // configure driver for 2 x 16 LCD
-//  delay(300);
-//  Serial.print("?BDD");    // set backlight brightness
-//  delay(300);
-//  Serial.print("?D00000000000001F1F");  // special character low bar
-//  delay(300);
-//  Serial.print("?D10000001F1F1F1F1F");  // special character half block
-//  delay(300);
-//  Serial.print("?D21F1F1F1F1F1F1F1F");  // special character full block
-//  delay(300);
-//  Serial.print("?D31C141C0000000000");  // special character degree symbol
-//  delay(300);
-//  Serial.print("?f");      // clear screen
-//}
-
-//void clearLCD() {
-//  Serial.print("?x00?y0?f"); // movie cursor to line 1 char 1, clear screen
-//  delay(300);
-//}
-
 // convert BCD to decimal numbers
 byte bcdToDec(byte val) {
   return ((val/16*10) + (val%16));
@@ -679,7 +639,8 @@ void serialDumpTime(void) {
   char timeString[12];
   char dateString[12];
   //char tempString[8];
-  uint8_t * pSprite;
+  const uint8_t * pSprite[] PROGMEM = {nostren_bmp,lowstren_bmp,midstren_bmp,fullstren_bmp};
+  char sigstren = 0;
 
   //tempout = calculatedTemperature;
   //tempoutd = ((calculatedTemperature - tempout) * 10);
@@ -694,23 +655,14 @@ void serialDumpTime(void) {
     // Count restarting or going over 60 indicates bad signal reception. Move receiver/antenna
     // to better location or try during more radio signal quiescent time of day.
     display.print(F("Acquiring Frame:"));
-    Serial.print("Acquiring Frame:");
-    //Serial.print("?x00?y1");
-    //Serial.print("?0?1?2");
-    //Serial.print("?x07?y1");
     if (bitCount < 10) { display.print(F("0")); Serial.print("0"); }
     display.println(bitCount, DEC);
-    Serial.println(bitCount, DEC);
-    //Serial.print("?x13?y1");
-    //Serial.print("?2?1?0");
-    //Serial.print("?c0"); 
     display.display();
 
   } else {  
     // Hour, minutes and seconds
     // Flashing seconds colon
-    if (clockStarted == 0) { display.clearDisplay(); }           // first time, clear display
-    //Serial.print("?x00?y0");                         // cursor to row one, char 1
+    display.clearDisplay();
 
     // calculate local time from offset and DST flag
     lhh = ((hh + dst + 24) - TZ[selectTZ][1]) % 24; // calculate local time
@@ -747,13 +699,20 @@ void serialDumpTime(void) {
       display.println(timeString);
     }  else {
       if ((ss % 2) == 0)
-        sprintf(timeString, "%02d:%02d.%02d %c", lhh, mm, ss, TZ[selectTZ][0]);
+        sprintf(timeString, "%02d:%02d.%02d ", lhh, mm, ss);
       else 
-        sprintf(timeString, "%02d %02d.%02d %c", lhh, mm, ss, TZ[selectTZ][0]);
-      
+        sprintf(timeString, "%02d %02d.%02d ", lhh, mm, ss);
+
       display.print(timeString);
+      
+      display.setTextSize(1);             // Normal 1:1 pixel scale
+      sprintf(timeString, "%c", TZ[selectTZ][0]);
+      display.print(timeString);
+      
       if (dst == 1) { display.print(F("D")); } else { display.print(F("S")); }
       display.println(F("T "));
+
+      display.setTextSize(2); //set back to 2:1
     }//if-else (display...
 
    /******************************************************************************************
@@ -771,42 +730,34 @@ void serialDumpTime(void) {
        display.println(dateString);
        // Display temperature in degrees Celsus
     //   sprintf(tempString, "%3d.%1d?3C",  tempout, tempoutd);
-    //   Serial.print(tempString);
     } else if (lhh < dayxing) {    // Local time can use date info up to UTC date crossing
        sprintf(dateString, "%04d%02d%02d ", year, mon, day);
        display.println(dateString);
        // Display temperature in degrees Celsus
     //   sprintf(tempString, "%3d.%1d?3C",  tempout, tempoutd);
-  //     Serial.print(tempString);
     } else {                       // Delay change of date till 00hrs local
        sprintf(dateString, "%04d%02d%02d ", year, prevmon, prevday);
        display.println(dateString);
        // Display temperature in degrees Celsus
     //   sprintf(tempString, "%3d.%1d?3C",  tempout, tempoutd);
-    //   Serial.print(tempString);
     } //if-else-if...
-    
-    clockStarted = 1;
 
     //display signal strength bars
     if (frameError == true && errorCount < 5)           // five or less sequential frame errors
-      pSprite = midstren_bmp; 
+      sigstren = 2; 
     else if (frameError == true & errorCount >= 5)   // more than 5 frame errors
-      pSprite = lowstren_bmp;
+      sigstren = 1;
     else
-      pSprite = fullstren_bmp;                  // clear signal reception
+      sigstren = 3;                  // clear signal reception
    
-
-    Serial.println("adding sig strength");
     display.drawBitmap(
       (display.width()  - SPRITE_WIDTH ),
       (display.height() - SPRITE_HEIGHT),
-      pSprite, SPRITE_WIDTH, SPRITE_HEIGHT, 1);
+      pSprite[sigstren], SPRITE_WIDTH, SPRITE_HEIGHT, 1);
 
 
     
   }//if-else(year == 0)...
 
-    Serial.println("updating display");
     display.display();
 }//serialDumpTime()
