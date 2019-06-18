@@ -1,7 +1,5 @@
 /*************************************************************************************************
- * Arduino WWVB C-Max CMMR-6P-A2 clock v1.0 using the CMMR-6P-60 Eval Kit
- *
- * With apologies to Heathkit, we miss you! --> "The Almost Accurate Clock"
+ * Arduino WWVB MAS6180C clock v1.0 using the Universal Solder US8160C1COB60K0A2 receiver kit
  *
  * Get the long tuned ferrite loopstick antenna and replace what's soldered to the board.
  *
@@ -12,33 +10,12 @@
  * Continental US Winter longwave propagation may give nearly 24 hr signal dependent on 
  * your location and local interference.
  *
- * capt.tagon's contributions
+ * lime918's contributions:
+ *  - converted display code to use SSD1306 128x32 OLED
+ *  - converted receiver code to work with MAS6180C clock receiver (particularly zero, one, and mark times)
+ *  - removed temperature, LED indication and time zone selection code.
  *
- *   Decode WWVB data stream, Short impulse noise filtering, Drop bad frames,  
- *   Display: Signal Quality Indicator, Month & Day from Day of Year data,
- *   Time Zone & DST Indicator for Local Time Display. Extend clock function
- *   to increment day and year for midnight rollover and year end rollover.
- *
- *   Choose  UTC/Local Time, Choose between four US Time Zones for local time
- *
- *   Note that UTC time display and Time Zones are set with DIP switches, flip settings
- *   and hit reset button. Polling switches to dynamically change UTC/LocalTime/TZ messes
- *   up the receiver decoding by introducing oddball delays that make it mistime the falling edge.
- *   Dip-One 0=Local, Time 1=UTC | Dip-Two&Three 00=E, 01=C, 10=M, 11=P 
- *
- *   Frame Error Indicator - serves as signal indicator - Arduino serves as clock
- *   during the noisy parts of the day, as it starts picking up WWVB frames, it syncs
- *   to NIST time.
- *   1. Continuous full block indicates time as accurate as propagation delay will allow. 
- *   2. Block and half block alternating. Signal is degrading, sync update when block shows.
- *   3. Half block, 5 or less sequential frame errors, low bar more than 5 frame errors. 
- *   4. Low bar continuous, poor WWVB signal, no sync. Running on microprocessor clock only.
- *      Your time will only be as accurate as your Arduino crystal allows. Date functions
- *      will also rollover at midnight and year end.
- *
- * Contributed code that makes this all happen. Thank you for the informative websites, 
- * time spent and sharing your code. I know how much I spent re-kajiggering for WWVB whose
- * data stream is a testament to cold war technology .
+ * Contributed code:
  *
  * Captain           http://www.captain.at/electronic-atmega-dcf77.php
  *   DCF77 time reception and decoding using the ATMega 16
@@ -48,6 +25,8 @@
  *   Amendments to DCF77 code, time display and addition of temperature functions
  * Peter H Anderson  http://phanderson.com/lcd106/lcd107.html
  *   LCD Display functions using LCD117 Serial LCD driver
+ * capt.tagon        http://duinolab.blogspot.com/2009/06/arduino-cmmr-6p-60-almost-accurate.html
+ *   improved signal decoding, time zone selection, error indication
  *************************************************************************************************/
 
 //#include              // sprintf 2k penalty, abandon for Serial.print() if memory low
@@ -63,13 +42,13 @@
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-#define SPRITE_HEIGHT   16
-#define SPRITE_WIDTH    16
-#define LOGO_HEIGHT     32
-#define LOGO_WIDTH      37
+#define SIGSTREN_HEIGHT   16
+#define SIGSTREN_WIDTH    16
+#define ATOM_HEIGHT       32
+#define ATOM_WIDTH        37
 
 // width x height = 37,32
-static const uint8_t logo_bmp[] PROGMEM = {
+static const uint8_t atom_bmp[] PROGMEM = {
   0x01,0xe0,0x00,0x30,0x07,
   0x03,0xf8,0x01,0xf8,0x07,
   0x02,0x0c,0x07,0x0c,0x07,
@@ -101,9 +80,7 @@ static const uint8_t logo_bmp[] PROGMEM = {
   0x02,0x0e,0x06,0x0c,0x07,
   0x03,0x3c,0x03,0xd8,0x07,
   0x01,0xf0,0x00,0xf0,0x07,
-  0x00,0x00,0x00,0x00,0x07,
-  
-  
+  0x00,0x00,0x00,0x00,0x07,  
 };
 
   static const unsigned char fullstren_bmp[] PROGMEM =
@@ -180,10 +157,7 @@ static const unsigned char nostren_bmp[] PROGMEM=
 
 //Inputs
 #define wwvbRxPin      2       // WWVB receiver digital input
-//#define utcSwitchPin   8       // Localtime/UTC selector switch digital input
-//#define tz1SwitchPin   9       // TZ selector switch digital input
-//#define tz2SwitchPin  10       // TZ selector switch digital input
-//#define tempSensorPin  5       // LM35 temperature sensor analog input
+
 //Outputs
 #define wwvbPdnPin     3 //1 - off (don't leave floating). 50ms startup delay after powerup required
 #define wwvbAonPin     4 //agc hold control. hold low during noisy activity (e.g. stepper motors).
@@ -300,18 +274,12 @@ int eomYear[14][2] = {
 
 byte previousSecond;             // store state to trip updates when second changes
 
-//float calculatedTemperature = 0; // calculated temperature from sensor
-
 /**********************************************************************************
  * Arduino setup() routines to initialize clock 
  **********************************************************************************/
 
 void setup(void) {
   Serial.begin(9600);            // Serial comms for debugging
-  // UTC display inputs
-//  pinMode(utcSwitchPin, INPUT);  // set pin mode input
-//  pinMode(tz1SwitchPin, INPUT);  // set pin mode input
-//  pinMode(tz2SwitchPin, INPUT);  // set pin mode input
 
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
@@ -322,15 +290,11 @@ void setup(void) {
   // Show atomic splash screen
   display.clearDisplay();
   display.drawBitmap(
-    ((display.width() - LOGO_WIDTH) / 2),
+    ((display.width() - ATOM_WIDTH) / 2),
     0,//(display.height() / 2),
-    logo_bmp, LOGO_WIDTH, LOGO_HEIGHT, 1);
+    atom_bmp, ATOM_WIDTH, ATOM_HEIGHT, 1);
   display.display();
   delay(2000);
-
-  //utcSwitchCheck();              // dip switch read during restart - display LocalTime/UTC
-  //tzSwitchCheck();               // dip switch read during restart - choose timezone to display
-  //getTemperature();              // read temperature from sensor
 
   //font settings
   display.cp437(true);  
@@ -338,9 +302,7 @@ void setup(void) {
   display.setTextColor(WHITE);        // Draw white text
   
   Serial.println(F("initializing receiver"));
-  wwvbInit();                    // initialize clock, ISR for time correction
-
- 
+  wwvbInit();                    // initialize clock, ISR for time correction 
 }
 
 /**********************************************************************************
@@ -349,12 +311,8 @@ void setup(void) {
 
 void loop(void) {
   if (ss != previousSecond) {    // upon seconds change
-    //if ((ss % 5) == 0) {         // every five seconds
-    //  getTemperature();          // read temperature sensor and compute temp degrees Celsus
-    //}
-    #ifndef DEBUG_DATASTRUC
+
     serialDumpTime();            // print date, time to LCD
-    #endif
     previousSecond = ss;         // store previous second
   }
   if (wwvbSignalState != previousSignalState) {  // upon WWVB receiver signal change
@@ -495,7 +453,7 @@ void scanSignal(void){
           markCount  = 0;                         // start counting marks, 6 per minute
           prevMark   = 0;                         // set bit counter to one
           bitCount   = 1;                         // should be a valid frame
-          frameError = false;                         // set frame error indicator to zero
+          frameError = false;                     // set frame error indicator to zero
           errorCount = 0;                         // set frame error count to zero
           finalizeBuffer();                       // hand off to decode time/date
           Serial.println("block finished");
@@ -503,7 +461,7 @@ void scanSignal(void){
           markCount  = 0;                         // bad start of frame set mark count to zero 
           prevMark   = 0;                         // clear previous to restart frame
           bitCount   = 1;                         // set bit count to one
-          frameError = true;                         // and indicate frame error
+          frameError = true;                      // and indicate frame error
           errorCount ++;                          // increment frame error count
           bufferPosition = 63;                    // set rx buffer position to beginning
           wwvbRxBuffer   = 0;                     // and clear rx buffer
@@ -594,38 +552,15 @@ void finalizeBuffer(void) {
   ss             = 0;
   bufferPosition = 63;
   wwvbRxBuffer   = 0;
-}
+}//finalizeBuffer()
 
-// convert BCD to decimal numbers
+/***************************************************************************************
+ * bcdToDec()
+ *
+ ***************************************************************************************/
 byte bcdToDec(byte val) {
   return ((val/16*10) + (val%16));
-}
-
-// read sensor value from LM35 temperature sensor and calculate temperature
-// replace sensor with LM34 for degrees Fahrenheit
-//void getTemperature() {
-//  int sensorValue;
-//  sensorValue = analogRead(tempSensorPin);
-//  calculatedTemperature = (5.0 * sensorValue * 100.0) / 1024.0;
-//}
-
-// Dip Switch for UTC - read once on startup - polling messes up reading WWVB receive data 
-//void utcSwitchCheck() {
-//  boolean utcVal = digitalRead(utcSwitchPin);
-//  if (utcVal == 1) {
-//      displayUTC = 1 ;                         // Show UTC
-//  }
-//}
-
-//void tzSwitchCheck() {
-//  boolean tz1Val = digitalRead(tz1SwitchPin);
-//  boolean tz2Val = digitalRead(tz2SwitchPin);
-//  if (tz1Val == 0 && tz2Val == 0) { selectTZ = 0; } // TZ E
-//  if (tz1Val == 0 && tz2Val == 1) { selectTZ = 1; } // TZ C
-//  if (tz1Val == 1 && tz2Val == 0) { selectTZ = 2; } // TZ M
-//  if (tz1Val == 1 && tz2Val == 1) { selectTZ = 3; } // TZ P
-//}  
-  
+}//bcdToDec()
 
 /********************************************************************************************
  * serialDumpTime()
@@ -634,18 +569,11 @@ byte bcdToDec(byte val) {
  ********************************************************************************************/
 
 void serialDumpTime(void) {
-  //int tempout;
-  //int tempoutd;
   char timeString[12];
   char dateString[12];
-  //char tempString[8];
-  const uint8_t * pSprite[] PROGMEM = {nostren_bmp,lowstren_bmp,midstren_bmp,fullstren_bmp};
+  const uint8_t * psigstren[] PROGMEM = {nostren_bmp,lowstren_bmp,midstren_bmp,fullstren_bmp};
   char sigstren = 0;
-
-  //tempout = calculatedTemperature;
-  //tempoutd = ((calculatedTemperature - tempout) * 10);
-
-
+  
   display.setCursor(0,0);             // Start at top-left corner
     
   if (year == 0) {
@@ -658,7 +586,6 @@ void serialDumpTime(void) {
     if (bitCount < 10) { display.print(F("0")); Serial.print("0"); }
     display.println(bitCount, DEC);
     display.display();
-
   } else {  
     // Hour, minutes and seconds
     // Flashing seconds colon
@@ -688,8 +615,7 @@ void serialDumpTime(void) {
       prevday = (doy - 1) - eomYear[peom][lyr];
       prevmon = (peom + 1) % 12;
       peom++;
-    }//while(eomY...
-  
+    }//while(eomY...  
 
     if (displayUTC == 1) {                   // display either UTC or local time
       if ((ss % 2) == 0)
@@ -704,7 +630,8 @@ void serialDumpTime(void) {
         sprintf(timeString, "%02d %02d.%02d ", lhh, mm, ss);
 
       display.print(timeString);
-      
+
+      //display time zone
       display.setTextSize(1);             // Normal 1:1 pixel scale
       sprintf(timeString, "%c", TZ[selectTZ][0]);
       display.print(timeString);
@@ -724,22 +651,15 @@ void serialDumpTime(void) {
     * 3. Half block, 5 or less sequential frame errors, low bar more than 5 frame errors. 
     * 4. Low bar continuous, poor WWVB signal, no sync. Running on microprocessor clock only.
     ******************************************************************************************/
-    //Serial.print("?x00?y1");       // ANSI Standard YYYYMMDD Sortable date string
     if (displayUTC == 1) {         // UTC can directly use month & day
        sprintf(dateString, "%04d%02d%02d ", year, mon, day);
        display.println(dateString);
-       // Display temperature in degrees Celsus
-    //   sprintf(tempString, "%3d.%1d?3C",  tempout, tempoutd);
     } else if (lhh < dayxing) {    // Local time can use date info up to UTC date crossing
        sprintf(dateString, "%04d%02d%02d ", year, mon, day);
        display.println(dateString);
-       // Display temperature in degrees Celsus
-    //   sprintf(tempString, "%3d.%1d?3C",  tempout, tempoutd);
     } else {                       // Delay change of date till 00hrs local
        sprintf(dateString, "%04d%02d%02d ", year, prevmon, prevday);
        display.println(dateString);
-       // Display temperature in degrees Celsus
-    //   sprintf(tempString, "%3d.%1d?3C",  tempout, tempoutd);
     } //if-else-if...
 
     //display signal strength bars
@@ -751,12 +671,9 @@ void serialDumpTime(void) {
       sigstren = 3;                  // clear signal reception
    
     display.drawBitmap(
-      (display.width()  - SPRITE_WIDTH ),
-      (display.height() - SPRITE_HEIGHT),
-      pSprite[sigstren], SPRITE_WIDTH, SPRITE_HEIGHT, 1);
-
-
-    
+      (display.width()  - SIGSTREN_WIDTH ),
+      (display.height() - SIGSTREN_HEIGHT),
+      psigstren[sigstren], SIGSTREN_WIDTH, SIGSTREN_HEIGHT, 1);    
   }//if-else(year == 0)...
 
     display.display();
