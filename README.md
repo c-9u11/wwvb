@@ -8,6 +8,5 @@ Universal Solder](https://www.universal-solder.ca/product/canaduino-60khz-atomic
 This project is licensed under the terms of the MIT license
 
 extra libraries required:
-https://github.com/adafruit/Adafruit_SSD1306/blob/master/examples/ssd1306_128x32_i2c/
-https://github.com/adafruit/Adafruit-GFX-Library
-http://www.eran.io/the-dot-factory-an-lcd-font-and-image-generator/
+- [Adafruit SSD1306 OLED](https://github.com/adafruit/Adafruit_SSD1306/)
+- [Adafruit GFX](https://github.com/adafruit/Adafruit-GFX-Library/)
