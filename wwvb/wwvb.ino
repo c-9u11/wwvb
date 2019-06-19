@@ -155,6 +155,8 @@ static const unsigned char nostren_bmp[] PROGMEM=
   B00000000, B00000000,
   B00000000, B00000000 };
 
+const uint8_t * const psigstren[] PROGMEM = {nostren_bmp,lowstren_bmp,midstren_bmp,fullstren_bmp};
+
 //Inputs
 #define wwvbRxPin      2       // WWVB receiver digital input
 
@@ -234,14 +236,6 @@ struct wwvbBuffer {
   unsigned long long MinTen    :3;  // minutes tens
 };
 
-// Decode variables for flags, counters and state
-boolean signalNoise     = 0;       // noise detected
-byte markCount          = 0;       // mark count, 6 pulses per minute
-boolean prevMark        = 0;       // store previous mark
-byte bitCount           = 0;       // bits, 60 pulses per minute
-boolean frameError      = true;       // set for frame reject
-word errorCount         = 0;       // keep count of frame errors
-
 // Time Zone definition array, identifier & offset
 byte TZ[4][2] = {
   {'E', 5},           // UTC -5 Eastern
@@ -272,14 +266,18 @@ int eomYear[14][2] = {
   {366,367}   // overflow
 };
 
-byte previousSecond;             // store state to trip updates when second changes
+  // Decode variables for flags, counters and state
+byte bitCount          = 0;       // bits, 60 pulses per minute
+boolean frameError     = true;    // set for frame reject
+word errorCount        = 0;       // keep count of frame errors
+int signalNoise        = 0;       // noise detected
 
 /**********************************************************************************
  * Arduino setup() routines to initialize clock 
  **********************************************************************************/
 
 void setup(void) {
-  Serial.begin(9600);            // Serial comms for debugging
+  Serial.begin(19200);            // Serial comms for debugging
 
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
@@ -310,6 +308,8 @@ void setup(void) {
  **********************************************************************************/
 
 void loop(void) {
+  static byte previousSecond = 0;              // store state to trip updates when second changes
+  
   if (ss != previousSecond) {    // upon seconds change
 
     serialDumpTime();            // print date, time to LCD
@@ -420,32 +420,33 @@ void int0handler() {
  * and replace with the long tuned version.
  *******************************************************************************************************/
 
-void scanSignal(void){ 
+void scanSignal(void){
+  static boolean prevMark       = 0;       // store previous mark
+  static byte markCount         = 0;       // mark count, 6 pulses per minute
+  
    if (wwvbSignalState == 1) {             // see if receiver input signal is still high
       int thisFlankTime=millis();          // retrieve current time
       previousFlankTime=thisFlankTime;     // add time to count
     } 
     else {                                         // or a falling flank
-      int difference=millis() - previousFlankTime; // determine pulse length
-      signalNoise = 0;                             // clear signal noise detected       
+      int difference=millis() - previousFlankTime; // determine pulse length                  
       if (difference < WWVB_noise_millis) {        // below minimum - pulse noise
-        // enough of this and it will cause bit flips and erroneous frame markers
-        signalNoise = 1;
+        signalNoise++;                           // enough of this and it will cause bit flips and erroneous frame markers
         Serial.print("x,");
       }
-        else if (difference < WWVB_zero_millis) {
-          appendSignal(0);                           // decode bit as 0
-          prevMark = 0;                              // set mark counter to zero
-          bitCount ++;                               // increment bit counter
-          Serial.print("0,");
-        } 
-        else if (difference < WWVB_one_millis){
-          appendSignal(1);                           // decode bit as 1
-          prevMark = 0;                              // set mark counter to zero
-          bitCount ++;                               // increment bit counter
-          Serial.print("1,");
-        }
-        else {  // 10 second and frame markers
+      else if (difference < WWVB_zero_millis) {
+        appendSignal(0);                           // decode bit as 0
+        prevMark = 0;                              // set mark counter to zero
+        bitCount ++;                               // increment bit counter
+        Serial.print("0,");
+      } 
+      else if (difference < WWVB_one_millis){
+        appendSignal(1);                           // decode bit as 1
+        prevMark = 0;                              // set mark counter to zero
+        bitCount ++;                               // increment bit counter
+        Serial.print("1,");
+      }
+      else {  // 10 second and frame markers
         // two sequential marks -> start of frame. If we read 6 marks and 60 bits,
         // we should have received a valid frame
         if ((prevMark == 1) && (markCount == 6) && (bitCount == 60)) { 
@@ -455,6 +456,7 @@ void scanSignal(void){
           bitCount   = 1;                         // should be a valid frame
           frameError = false;                     // set frame error indicator to zero
           errorCount = 0;                         // set frame error count to zero
+          signalNoise = 0;                        //clear noise counter
           finalizeBuffer();                       // hand off to decode time/date
           Serial.println("block finished");
         } else if ((prevMark == 1) && ((markCount != 6) || (bitCount != 60))) { // bad decode-frame reject
@@ -472,18 +474,9 @@ void scanSignal(void){
           appendSignal(0);                        // marks count as 0
           prevMark = 1;                           // set mark state to one, following mark indicates frame
           bitCount ++;                            // increment bit counter
+          signalNoise = 0;
         }
       }
-    }
-
-    if(bitCount > 120){ //attempt frame re-acquisition
-      markCount = 0;
-      prevMark = 0;
-      bitCount = 1;
-      frameError = false;
-      bufferPosition = 63;
-      wwvbRxBuffer = 0;
-      Serial.println("attempting re-acquisition");
     }
 }//scansignal()
 
@@ -571,7 +564,6 @@ byte bcdToDec(byte val) {
 void serialDumpTime(void) {
   char timeString[12];
   char dateString[12];
-  const uint8_t * psigstren[] PROGMEM = {nostren_bmp,lowstren_bmp,midstren_bmp,fullstren_bmp};
   char sigstren = 0;
   
   display.setCursor(0,0);             // Start at top-left corner
@@ -663,10 +655,12 @@ void serialDumpTime(void) {
     } //if-else-if...
 
     //display signal strength bars
-    if (frameError == true && errorCount < 5)           // five or less sequential frame errors
-      sigstren = 2; 
-    else if (frameError == true & errorCount >= 5)   // more than 5 frame errors
+    if(signalNoise > 60)
+      sigstren = 0;
+    if (frameError == true & errorCount >= 5)   // more than 5 frame errors
       sigstren = 1;
+    else if (frameError == true && errorCount < 5)           // five or less sequential frame errors
+      sigstren = 2; 
     else
       sigstren = 3;                  // clear signal reception
    
