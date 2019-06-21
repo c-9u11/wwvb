@@ -164,6 +164,7 @@ const uint8_t * const psigstren[] PROGMEM = {nostren_bmp,lowstren_bmp,midstren_b
 #define wwvbPdnPin     3 //1 - off (don't leave floating). 50ms startup delay after powerup required
 #define wwvbAonPin     4 //agc hold control. hold low during noisy activity (e.g. stepper motors).
                          //has internal pullup. leave unconnected if not required.
+#define clockOut       5 //one second test output
 
 //Constants
 #define WWVB_noise_millis 100  // Number of milliseconds in which we assume noise     (100ms)
@@ -340,6 +341,8 @@ void wwvbInit() {
   pinMode(wwvbRxPin, INPUT);             // set WWVB Rx pin input
   pinMode(wwvbPdnPin, OUTPUT);
   pinMode(wwvbAonPin, OUTPUT);
+  pinMode(clockOut, OUTPUT);
+  digitalWrite(clockOut,0); //start low
   
   // Timer2 Settings: Timer Prescaler /64, 
   TCCR2B |= (1<<CS22);                     // turn on CS22 bit
@@ -371,6 +374,7 @@ ISR(TIMER2_OVF_vect) {
   tickCounter += 1;       // increment second
   if (tickCounter >= 1000) {
     ss++;
+    digitalWrite(clockOut, digitalRead(clockOut)); //toggle 1s output
     if (ss >= 60) {       // increment minute
       ss = 0;
       mm++;
