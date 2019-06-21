@@ -657,7 +657,7 @@ void serialDumpTime(void) {
     //display signal strength bars
     if(signalNoise > 60)
       sigstren = 0;
-    if (frameError == true & errorCount >= 5)   // more than 5 frame errors
+    else if (frameError == true & errorCount >= 5)   // more than 5 frame errors
       sigstren = 1;
     else if (frameError == true && errorCount < 5)           // five or less sequential frame errors
       sigstren = 2; 
