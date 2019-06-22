@@ -155,7 +155,7 @@ static const unsigned char nostren_bmp[] PROGMEM=
   B00000000, B00000000,
   B00000000, B00000000 };
 
-const uint8_t * const psigstren[] PROGMEM = {nostren_bmp,lowstren_bmp,midstren_bmp,fullstren_bmp};
+
 
 //Inputs
 #define wwvbRxPin      2       // WWVB receiver digital input
@@ -374,7 +374,7 @@ ISR(TIMER2_OVF_vect) {
   tickCounter += 1;       // increment second
   if (tickCounter >= 1000) {
     ss++;
-    digitalWrite(clockOut, digitalRead(clockOut)); //toggle 1s output
+    digitalWrite(clockOut, !digitalRead(clockOut)); //toggle 1s output
     if (ss >= 60) {       // increment minute
       ss = 0;
       mm++;
@@ -569,12 +569,12 @@ void serialDumpTime(void) {
   char timeString[12];
   char dateString[12];
   char sigstren = 0;
+  const uint8_t * psigstren[] PROGMEM = {nostren_bmp,lowstren_bmp,midstren_bmp,fullstren_bmp};
   
   display.setCursor(0,0);             // Start at top-left corner
+  display.clearDisplay();
     
   if (year == 0) {
-    display.clearDisplay();
-
     // Display "Aquiring Frame:" and bit count. At 60, frame is finished and clock should sync.
     // Count restarting or going over 60 indicates bad signal reception. Move receiver/antenna
     // to better location or try during more radio signal quiescent time of day.
@@ -585,7 +585,6 @@ void serialDumpTime(void) {
   } else {  
     // Hour, minutes and seconds
     // Flashing seconds colon
-    display.clearDisplay();
 
     // calculate local time from offset and DST flag
     lhh = ((hh + dst + 24) - TZ[selectTZ][1]) % 24; // calculate local time
@@ -659,15 +658,16 @@ void serialDumpTime(void) {
     } //if-else-if...
 
     //display signal strength bars
-    if(signalNoise > 60)
-      sigstren = 0;
-    else if (frameError == true & errorCount >= 5)   // more than 5 frame errors
-      sigstren = 1;
-    else if (frameError == true && errorCount < 5)           // five or less sequential frame errors
-      sigstren = 2; 
-    else
-      sigstren = 3;                  // clear signal reception
-   
+    if (signalNoise > 60) {
+       sigstren = 0;
+    } else if ((frameError == true) && (errorCount >= 5)) {    //5 or more frame errors
+       sigstren = 1;
+    } else if ((frameError == false) && (errorCount < 5)) {    //less than 5 sequential frame errors
+       sigstren = 2;
+    } else {
+       sigstren = 3; //clear signal reception
+    }
+
     display.drawBitmap(
       (display.width()  - SIGSTREN_WIDTH ),
       (display.height() - SIGSTREN_HEIGHT),
